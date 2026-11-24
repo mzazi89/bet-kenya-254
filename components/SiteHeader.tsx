@@ -1,18 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { money } from "@/lib/game";
-import { useWallet } from "@/lib/wallet";
+import { useBank } from "@/lib/bank";
 
 const NAV = [
-  { href: "/", label: "Aviator" },
+  { href: "/", label: "Lobby" },
+  { href: "/aviator", label: "Aviator" },
   { href: "/sports", label: "Sportsbook" },
+  { href: "/account", label: "My account" },
 ];
 
 export default function SiteHeader() {
   const pathname = usePathname();
-  const { balance, topUp, ready, resetWallet } = useWallet();
+  const router = useRouter();
+  const { balance, mode, setMode, isSignedIn, profile, ready } = useBank();
+
+  const initials = profile?.name
+    ? profile.name
+        .split(" ")
+        .map((part) => part.charAt(0))
+        .slice(0, 2)
+        .join("")
+        .toUpperCase()
+    : "";
+
+  const chooseAccount = () => {
+    if (isSignedIn) setMode("account");
+    else router.push("/auth?next=account");
+  };
 
   return (
     <header className="site-header">
@@ -42,34 +59,53 @@ export default function SiteHeader() {
           ))}
         </nav>
 
-        <div className="wallet-chip">
-          <span className="wallet-meta">
-            <span className="wallet-label">Balance</span>
-            <span className="wallet-balance">{ready ? money(balance) : "KES —"}</span>
-          </span>
+        <div className="mode-switch" role="group" aria-label="Wallet mode">
           <button
             type="button"
-            className="topup-btn"
-            onClick={() => topUp(1000)}
-            title="Add KES 1,000 of demo credits"
+            className={mode === "demo" ? "active" : ""}
+            onClick={() => setMode("demo")}
           >
-            + 1,000
+            Demo
           </button>
           <button
             type="button"
-            className="topup-btn reset-btn"
-            onClick={() => {
-              if (window.confirm("Reset demo wallet to KES 5,000 and clear history?")) {
-                resetWallet();
-              }
-            }}
-            title="Reset the demo wallet"
+            className={`${mode === "account" ? "active account" : ""}`}
+            onClick={chooseAccount}
+            title={isSignedIn ? "Play with your account balance" : "Sign in to use account mode"}
           >
-            Reset
+            Account
           </button>
         </div>
 
-        <span className="demo-badge">Play money</span>
+        <div className="balance-chip">
+          <span className="wallet-meta">
+            <span className="wallet-label">{mode === "account" ? "Account" : "Demo"}</span>
+            <span className="amount">{ready ? money(balance) : "KES —"}</span>
+          </span>
+          <Link
+            href={isSignedIn ? "/account?tab=wallet" : "/auth?next=deposit"}
+            className="deposit-btn"
+          >
+            Deposit
+          </Link>
+        </div>
+
+        {isSignedIn && profile ? (
+          <Link href="/account" className="user-btn" title="Open my account">
+            <span className="avatar" style={{ background: "var(--green)" }}>
+              {initials}
+            </span>
+            <span className="user-name">{profile.name.split(" ")[0]}</span>
+          </Link>
+        ) : (
+          <Link href="/auth" className="btn-ghost btn-sm">
+            Sign in
+          </Link>
+        )}
+
+        <span className="demo-badge" title="All balances on this build are virtual">
+          Play money
+        </span>
       </div>
     </header>
   );

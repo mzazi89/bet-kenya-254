@@ -9,7 +9,7 @@ import {
   type Market,
   type Pick,
 } from "@/lib/sports";
-import { useWallet, type BetLeg } from "@/lib/wallet";
+import { useBank, type BetLeg } from "@/lib/bank";
 import { ToastStack, useToasts } from "./ToastStack";
 
 const TABS = ["All", ...SPORTS] as const;
@@ -21,7 +21,7 @@ function money2(value: number) {
 }
 
 export default function SportsPage() {
-  const { balance, addTicket, tickets, settleTicket } = useWallet();
+  const { balance, addTicket, tickets, settleTicket, mode } = useBank();
   const { items, push } = useToasts();
 
   const [tab, setTab] = useState<(typeof TABS)[number]>("All");
@@ -108,7 +108,7 @@ export default function SportsPage() {
     }
     const id = addTicket({ stake: stakeValue, odds: totalOdds, legs: selections });
     if (!id) {
-      push("Not enough demo balance for that stake", "lose");
+      push("Not enough balance, or betting is blocked by your limits", "lose");
       return;
     }
     push(`Slip placed · ${money(stakeValue)} at ${money2(totalOdds)} odds`, "info");
@@ -293,7 +293,8 @@ export default function SportsPage() {
                     {stakeValue > balance ? "Insufficient balance" : `Place bet · ${money(stakeValue)}`}
                   </button>
                   <p className="bet-note" style={{ margin: 0 }}>
-                    Balance {money(balance)} · odds and results are simulated.
+                    {mode === "demo" ? "Demo" : "Account"} balance {money(balance)} · odds and
+                    results are simulated.
                   </p>
                 </>
               )}

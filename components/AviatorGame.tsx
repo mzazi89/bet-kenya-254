@@ -7,7 +7,7 @@ import LiveBets from "./LiveBets";
 import { ToastStack, useToasts } from "./ToastStack";
 import { money, multiplierLabel, round2 } from "@/lib/game";
 import { useAviator } from "@/lib/useAviator";
-import { useWallet } from "@/lib/wallet";
+import { useBank, type AviatorBet } from "@/lib/bank";
 
 type ActiveBet = { stake: number; roundId: number; autoAt: number | null };
 
@@ -30,7 +30,8 @@ function historyTone(value: number): string {
 export default function AviatorGame() {
   const { phase, roundId, multiplier, flightMs, countdownMs, crashPoint, seed, seedHash, history } =
     useAviator();
-  const { balance, debit, credit } = useWallet();
+  const { balance, debit, credit, recordAviatorBet, canBet, mode, selfExcludedUntil, aviatorBets } =
+    useBank();
   const { items, push } = useToasts();
 
   const [stake, setStake] = useState(100);
@@ -57,10 +58,16 @@ export default function AviatorGame() {
       const at = target ?? Math.max(multiplier, 1);
       const payout = round2(active.stake * at);
       updateBet(null);
+      recordAviatorBet({
+        roundId: active.roundId,
+        stake: active.stake,
+        cashout: at,
+        payout,
+      });
       credit(payout, `Aviator cash out @ ${multiplierLabel(at)}`);
       push(`Cashed out ${money(payout)} at ${multiplierLabel(at)}`, "win");
     },
-    [roundId, multiplier, credit, push, updateBet],
+    [roundId, multiplier, credit, push, updateBet, recordAviatorBet],
   );
 
   // Automatic cash-out while the plane is climbing.
@@ -74,14 +81,31 @@ export default function AviatorGame() {
     if (phase !== "crashed" || crashGuard.current === roundId) return;
     crashGuard.current = roundId;
     if (bet && bet.roundId === roundId) {
+      recordAviatorBet({
+        roundId,
+        stake: bet.stake,
+        cashout: null,
+        payout: 0,
+      });
       push(`Flew away at ${multiplierLabel(crashPoint)} — ${money(bet.stake)} lost`, "lose");
       updateBet(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, roundId, crashPoint, push, bet]);
+  }, [phase, roundId, crashPoint, push, bet, recordAviatorBet]);
+
+  const excluded = Boolean(selfExcludedUntil && selfExcludedUntil > Date.now());
+  const blockedReason = excluded
+    ? "Self-exclusion is active on this account"
+    : !canBet
+      ? "Daily loss limit reached — try again tomorrow"
+      : null;
 
   const placeBet = () => {
     if (betRef.current) return;
+    if (blockedReason) {
+      push(blockedReason, "lose");
+      return;
+    }
     const amount = Math.round(stake);
     if (amount < 10) {
       push("Minimum stake is KES 10", "lose");
@@ -159,15 +183,17 @@ export default function AviatorGame() {
         type="button"
         className="action-btn"
         onClick={placeBet}
-        disabled={shortOfFunds || stakeTooLow}
+        disabled={shortOfFunds || stakeTooLow || Boolean(blockedReason)}
       >
         <span className="btn-main">{phase === "flying" ? "BET NEXT ROUND" : "PLACE BET"}</span>
         <small>
-          {shortOfFunds
-            ? "Insufficient balance"
-            : stakeTooLow
-              ? "Minimum stake KES 10"
-              : `${money(stake)}${autoOn && autoValid ? ` · auto ${multiplierLabel(autoAt)}` : ""}`}
+          {blockedReason
+            ? blockedReason
+            : shortOfFunds
+              ? "Insufficient balance"
+              : stakeTooLow
+                ? "Minimum stake KES 10"
+                : `${money(stake)}${autoOn && autoValid ? ` · auto ${multiplierLabel(autoAt)}` : ""}`}
         </small>
       </button>
     );
@@ -363,13 +389,16 @@ export default function AviatorGame() {
 
             {button}
             <p className="bet-note">
-              Betting during a flight queues your stake for the next round. Demo credits only.
+              {mode === "demo"
+                ? "Demo credits · switch to Account in the header to use your own balance."
+                : "Account balance · every stake and payout is written to your ledger."}
             </p>
           </div>
         </div>
 
         <aside className="side-stack">
           <LiveBets roundId={roundId} phase={phase} multiplier={multiplier} crashPoint={crashPoint} />
+          <YourBets bets={aviatorBets} />
           <FairnessCard
             roundId={roundId}
             phase={phase}
@@ -416,5 +445,45 @@ export default function AviatorGame() {
 
       <ToastStack items={items} />
     </>
+  );
+}
+
+
+function YourBets({ bets }: { bets: AviatorBet[] }) {
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2 className="card-title">Your bets</h2>
+        <span className="spacer" />
+        <span className="card-sub">{bets.length ? `${bets.length} recent` : "this wallet"}</span>
+      </div>
+      {bets.length === 0 ? (
+        <div className="empty-state">No rounds played yet. Place a bet to start a history.</div>
+      ) : (
+        <div style={{ padding: "6px 14px 12px" }}>
+          {bets.slice(0, 6).map((bet) => (
+            <div className="ledger-row" key={bet.id}>
+              <div>
+                <div className="ledger-label">
+                  Round #{bet.roundId} · {money(bet.stake)}
+                </div>
+                <div className="ledger-meta">
+                  {new Date(bet.at).toLocaleTimeString("en-KE", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  {bet.cashout
+                    ? ` · cashed at ${multiplierLabel(bet.cashout)}`
+                    : " · flew away"}
+                </div>
+              </div>
+              <div className={`ledger-amount ${bet.payout > 0 ? "plus" : "minus"}`}>
+                {bet.payout > 0 ? `+${money(bet.payout)}` : `−${money(bet.stake)}`}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

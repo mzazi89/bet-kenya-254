@@ -15,31 +15,34 @@ export default function SiteFooter() {
               <strong>BET KENYA 254</strong>
             </div>
             <p>
-              A demo crash game and sportsbook for Kenya, built with Next.js. Every balance,
-              odds line and payout on this site is virtual.
+              Crash games and a Kenyan sportsbook, built with Next.js. Demo mode needs no
+              account; registered accounts add a wallet, limits and bet history.
             </p>
           </div>
 
           <div className="footer-links">
-            <Link href="/">Aviator</Link>
+            <Link href="/">Lobby</Link>
+            <Link href="/aviator">Aviator</Link>
             <Link href="/sports">Sportsbook</Link>
-            <Link href="/sports#my-bets">My bets</Link>
+            <Link href="/fair">Provably fair</Link>
+            <Link href="/account">My account</Link>
           </div>
 
           <div className="row" style={{ gap: 10 }}>
             <span className="age-badge">18+</span>
             <span style={{ fontSize: 11.5, color: "var(--muted-2)", maxWidth: 190 }}>
-              Gambling is for adults only. If it stops being fun, take a break.
+              Gambling is for adults only. Set limits before you play, not after.
             </span>
           </div>
         </div>
 
         <div className="footer-note">
           <span>
-            <strong style={{ color: "var(--muted)" }}>Play-money demo.</strong> No deposits, no
-            withdrawals, no M-Pesa or card processing. Credits reset on demand and carry no cash
-            value. Built as a portfolio project — not a licensed betting operator. Real-money
-            gambling in Kenya requires a BCLB licence; please play responsibly.
+            <strong style={{ color: "var(--muted)" }}>Play-money preview.</strong> No deposits,
+            withdrawals or real-money wagers are processed. Balances are virtual, have no cash
+            value, and accounts on this deployment are stored in this browser only — connect a
+            Postgres database to make them portable. Operating a real betting service in Kenya
+            requires a BCLB licence, KYC/AML controls and responsible-gambling tooling.
           </span>
         </div>
       </div>

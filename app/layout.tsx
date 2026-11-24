@@ -5,9 +5,9 @@ import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 
 export const metadata: Metadata = {
-  title: "Bet Kenya 254 · Aviator & Sportsbook",
+  title: "Bet Kenya 254 · Aviator, Sports & Instant Games",
   description:
-    "Play the Aviator-style crash game and a demo Kenyan sportsbook. Play-money credits only — no real wagering.",
+    "Aviator-style crash game, Kenyan sportsbook, demo and registered wallet modes. Play-money preview — no real wagering.",
 };
 
 export const viewport: Viewport = {
