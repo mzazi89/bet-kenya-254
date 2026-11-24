@@ -9,7 +9,7 @@ import { money, multiplierLabel, round2 } from "@/lib/game";
 import { useAviator } from "@/lib/useAviator";
 import { useBank, type AviatorBet } from "@/lib/bank";
 
-type ActiveBet = { stake: number; roundId: number; autoAt: number | null };
+type ActiveBet = { id: string; stake: number; roundId: number; autoAt: number | null };
 
 const STAKE_CHIPS = [50, 100, 250, 500, 1000];
 const AUTO_CHIPS = ["1.50", "2.00", "3.00", "5.00"];
@@ -30,14 +30,22 @@ function historyTone(value: number): string {
 export default function AviatorGame() {
   const { phase, roundId, multiplier, flightMs, countdownMs, crashPoint, seed, seedHash, history } =
     useAviator();
-  const { balance, debit, credit, recordAviatorBet, canBet, mode, selfExcludedUntil, aviatorBets } =
-    useBank();
+  const {
+    balance,
+    canBet,
+    mode,
+    selfExcludedUntil,
+    aviatorBets,
+    placeAviatorBet,
+    settleAviatorBet,
+  } = useBank();
   const { items, push } = useToasts();
 
   const [stake, setStake] = useState(100);
   const [autoOn, setAutoOn] = useState(false);
   const [autoInput, setAutoInput] = useState("2.00");
   const [bet, setBet] = useState<ActiveBet | null>(null);
+  const [pending, setPending] = useState(false);
   const betRef = useRef<ActiveBet | null>(null);
   const crashGuard = useRef(0);
 
@@ -52,22 +60,22 @@ export default function AviatorGame() {
   const queuedBet = bet && bet.roundId > roundId ? bet : null;
 
   const cashOut = useCallback(
-    (target?: number) => {
+    async (target?: number) => {
       const active = betRef.current;
       if (!active || active.roundId !== roundId) return;
       const at = target ?? Math.max(multiplier, 1);
-      const payout = round2(active.stake * at);
       updateBet(null);
-      recordAviatorBet({
-        roundId: active.roundId,
-        stake: active.stake,
-        cashout: at,
-        payout,
-      });
-      credit(payout, `Aviator cash out @ ${multiplierLabel(at)}`);
-      push(`Cashed out ${money(payout)} at ${multiplierLabel(at)}`, "win");
+      const result = await settleAviatorBet(active.id, at);
+      if (result.ok) {
+        push(
+          `Cashed out ${money(result.payout ?? round2(active.stake * at))} at ${multiplierLabel(at)}`,
+          "win",
+        );
+      } else {
+        push(result.error ?? "Could not cash out", "lose");
+      }
     },
-    [roundId, multiplier, credit, push, updateBet, recordAviatorBet],
+    [roundId, multiplier, push, updateBet, settleAviatorBet],
   );
 
   // Automatic cash-out while the plane is climbing.
@@ -81,17 +89,13 @@ export default function AviatorGame() {
     if (phase !== "crashed" || crashGuard.current === roundId) return;
     crashGuard.current = roundId;
     if (bet && bet.roundId === roundId) {
-      recordAviatorBet({
-        roundId,
-        stake: bet.stake,
-        cashout: null,
-        payout: 0,
-      });
-      push(`Flew away at ${multiplierLabel(crashPoint)} — ${money(bet.stake)} lost`, "lose");
+      const lostBet = bet;
       updateBet(null);
+      void settleAviatorBet(lostBet.id, null);
+      push(`Flew away at ${multiplierLabel(crashPoint)} — ${money(lostBet.stake)} lost`, "lose");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, roundId, crashPoint, push, bet, recordAviatorBet]);
+  }, [phase, roundId, crashPoint, push, bet, settleAviatorBet]);
 
   const excluded = Boolean(selfExcludedUntil && selfExcludedUntil > Date.now());
   const blockedReason = excluded
@@ -100,8 +104,8 @@ export default function AviatorGame() {
       ? "Daily loss limit reached — try again tomorrow"
       : null;
 
-  const placeBet = () => {
-    if (betRef.current) return;
+  const placeBet = async () => {
+    if (betRef.current || pending) return;
     if (blockedReason) {
       push(blockedReason, "lose");
       return;
@@ -112,12 +116,15 @@ export default function AviatorGame() {
       return;
     }
     const targetRound = phase === "waiting" ? roundId : roundId + 1;
-    if (!debit(amount, `Aviator stake · round #${targetRound}`)) {
-      push("Not enough demo balance — add 1,000 with the top-up button", "lose");
+    setPending(true);
+    const result = await placeAviatorBet(targetRound, amount);
+    setPending(false);
+    if (!result.ok || !result.betId) {
+      push(result.error ?? "Could not place the bet", "lose");
       return;
     }
     const auto = autoOn && autoValid ? autoAt : null;
-    updateBet({ stake: amount, roundId: targetRound, autoAt: auto });
+    updateBet({ id: result.betId, stake: amount, roundId: targetRound, autoAt: auto });
     push(
       auto
         ? `Bet placed · auto cash out at ${multiplierLabel(auto)}`
@@ -128,12 +135,15 @@ export default function AviatorGame() {
     );
   };
 
-  const cancelBet = () => {
+  const cancelBet = async () => {
     const active = betRef.current;
     if (!active || active.roundId !== roundId) return;
     updateBet(null);
-    credit(active.stake, "Aviator bet cancelled");
-    push("Bet cancelled — stake returned", "info");
+    const result = await settleAviatorBet(active.id, 1);
+    push(
+      result.ok ? "Bet cancelled — stake returned" : (result.error ?? "Could not cancel"),
+      result.ok ? "info" : "lose",
+    );
   };
 
   const secondsLeft = Math.ceil(countdownMs / 1000);
@@ -183,9 +193,11 @@ export default function AviatorGame() {
         type="button"
         className="action-btn"
         onClick={placeBet}
-        disabled={shortOfFunds || stakeTooLow || Boolean(blockedReason)}
+        disabled={shortOfFunds || stakeTooLow || Boolean(blockedReason) || pending}
       >
-        <span className="btn-main">{phase === "flying" ? "BET NEXT ROUND" : "PLACE BET"}</span>
+        <span className="btn-main">
+          {pending ? "PLACING…" : phase === "flying" ? "BET NEXT ROUND" : "PLACE BET"}
+        </span>
         <small>
           {blockedReason
             ? blockedReason

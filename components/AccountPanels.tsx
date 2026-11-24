@@ -49,7 +49,7 @@ export default function AccountPanels() {
     deposit,
     requestWithdrawal,
     submitKyc,
-    updateProfile,
+    approveKyc,
     changePassword,
     toggleTwoFactor,
     topUpDemo,
@@ -111,9 +111,9 @@ export default function AccountPanels() {
     ? Math.max(0, Math.ceil((selfExcludedUntil - Date.now()) / 86_400_000))
     : 0;
 
-  const doDeposit = () => {
+  const doDeposit = async () => {
     const amount = Number.parseInt(depositAmount, 10) || 0;
-    const result = deposit(amount, depositMethod);
+    const result = await deposit(amount, depositMethod);
     setToast(
       result.ok
         ? { tone: "ok", text: `${money(amount)} added via ${depositMethod} (simulated, no charge)` }
@@ -121,9 +121,13 @@ export default function AccountPanels() {
     );
   };
 
-  const doWithdraw = () => {
+  const doWithdraw = async () => {
     const amount = Number.parseInt(withdrawAmount, 10) || 0;
-    const result = requestWithdrawal(amount, withdrawMethod, destination || profile.phone);
+    const result = await requestWithdrawal(
+      amount,
+      withdrawMethod,
+      destination || profile.phone || "",
+    );
     setToast(
       result.ok
         ? {
@@ -134,14 +138,18 @@ export default function AccountPanels() {
     );
   };
 
-  const saveLimits = () => {
+  const saveLimits = async () => {
     const next = {
       dailyDeposit: Math.max(0, Number.parseInt(limitDraft.dailyDeposit, 10) || 0),
       dailyLoss: Math.max(0, Number.parseInt(limitDraft.dailyLoss, 10) || 0),
       realityCheckMin: Math.max(0, Number.parseInt(limitDraft.realityCheckMin, 10) || 0),
     };
-    setLimits(next);
-    setToast({ tone: "ok", text: "Limits updated. Lower limits apply immediately." });
+    const result = await setLimits(next);
+    setToast(
+      result.ok
+        ? { tone: "ok", text: "Limits updated. Lower limits apply immediately." }
+        : { tone: "error", text: result.error ?? "Could not save limits" },
+    );
   };
 
   const changePw = async (event: React.FormEvent) => {
@@ -578,14 +586,18 @@ export default function AccountPanels() {
                     key={days}
                     type="button"
                     className="btn-ghost btn-sm"
-                    onClick={() => {
+                    onClick={async () => {
                       if (
                         window.confirm(
                           `Self-exclude for ${days} day${days === 1 ? "" : "s"}? Betting will be blocked immediately.`,
                         )
                       ) {
-                        selfExclude(days);
-                        setToast({ tone: "ok", text: `Self-exclusion active for ${days} day(s)` });
+                        const result = await selfExclude(days);
+                        setToast(
+                          result.ok
+                            ? { tone: "ok", text: `Self-exclusion active for ${days} day(s)` }
+                            : { tone: "error", text: result.error ?? "Could not set exclusion" },
+                        );
                       }
                     }}
                   >
@@ -628,13 +640,17 @@ export default function AccountPanels() {
                 <button
                   type="button"
                   className="btn-primary"
-                  onClick={() => {
+                  onClick={async () => {
                     if (kycName.trim().length < 3 || kycId.trim().length < 5) {
                       setToast({ tone: "error", text: "Enter your legal name and a valid ID number" });
                       return;
                     }
-                    submitKyc(kycName, kycId);
-                    setToast({ tone: "ok", text: "Submitted for review" });
+                    const result = await submitKyc(kycName, kycId);
+                    setToast(
+                      result.ok
+                        ? { tone: "ok", text: "Submitted for review" }
+                        : { tone: "error", text: result.error ?? "Could not submit" },
+                    );
                   }}
                 >
                   Submit for review
@@ -655,9 +671,13 @@ export default function AccountPanels() {
                 <button
                   type="button"
                   className="btn-gold"
-                  onClick={() => {
-                    updateProfile({ kyc: "verified" });
-                    setToast({ tone: "ok", text: "Verification approved (simulated)" });
+                  onClick={async () => {
+                    const result = await approveKyc();
+                    setToast(
+                      result.ok
+                        ? { tone: "ok", text: "Verification approved (simulated)" }
+                        : { tone: "error", text: result.error ?? "Could not approve" },
+                    );
                   }}
                 >
                   Simulate approval (demo)
@@ -724,14 +744,14 @@ export default function AccountPanels() {
               </h2>
               <div className="kv">
                 <span>Two-factor authentication</span>
-                <button type="button" className="chip" onClick={toggleTwoFactor}>
+                <button type="button" className="chip" onClick={() => void toggleTwoFactor()}>
                   {profile.twoFactor ? "Enabled · turn off" : "Disabled · turn on"}
                 </button>
               </div>
               <div className="kv">
                 <span>This device</span>
                 <span className="mono" style={{ fontSize: 11.5 }}>
-                  {typeof navigator !== "undefined" ? navigator.platform || "Browser" : "Browser"} · local storage
+                  {typeof navigator !== "undefined" ? navigator.platform || "Browser" : "Browser"} · session cookie
                 </span>
               </div>
               <div className="kv">
@@ -739,8 +759,8 @@ export default function AccountPanels() {
                 <button
                   type="button"
                   className="chip"
-                  onClick={() => {
-                    signOut();
+                  onClick={async () => {
+                    await signOut();
                     router.push("/");
                   }}
                 >
@@ -758,8 +778,8 @@ export default function AccountPanels() {
                   <path d="M10 7v5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                 </svg>
                 <span>
-                  Accounts in this preview live in this browser&apos;s storage. Clearing site data
-                  removes them; connecting the production database makes them portable.
+                  Accounts, wallets and bet history are stored server-side in Postgres. Signing out
+                  clears this device&apos;s session cookie only.
                 </span>
               </div>
             </section>
@@ -770,16 +790,20 @@ export default function AccountPanels() {
               Demo tools
             </h2>
             <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-              <button type="button" className="btn-ghost btn-sm" onClick={topUpDemo}>
+              <button type="button" className="btn-ghost btn-sm" onClick={() => void topUpDemo()}>
                 + KES 1,000 demo credits
               </button>
               <button
                 type="button"
                 className="btn-ghost btn-sm"
-                onClick={() => {
+                onClick={async () => {
                   if (window.confirm("Reset the demo wallet to KES 5,000?")) {
-                    resetDemo();
-                    setToast({ tone: "ok", text: "Demo wallet reset" });
+                    const result = await resetDemo();
+                    setToast(
+                      result.ok
+                        ? { tone: "ok", text: "Demo wallet reset" }
+                        : { tone: "error", text: result.error ?? "Could not reset" },
+                    );
                   }
                 }}
               >

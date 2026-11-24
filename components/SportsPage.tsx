@@ -21,13 +21,14 @@ function money2(value: number) {
 }
 
 export default function SportsPage() {
-  const { balance, addTicket, tickets, settleTicket, mode } = useBank();
+  const { balance, placeTicket, tickets, settleTicket, mode } = useBank();
   const { items, push } = useToasts();
 
   const [tab, setTab] = useState<(typeof TABS)[number]>("All");
   const [panel, setPanel] = useState<"slip" | "bets">("slip");
   const [selections, setSelections] = useState<BetLeg[]>([]);
   const [stake, setStake] = useState("500");
+  const [placing, setPlacing] = useState(false);
   const timers = useRef(new Map<string, number>());
 
   const stakeValue = Math.max(0, Math.floor(Number(stake) || 0));
@@ -52,16 +53,15 @@ export default function SportsPage() {
         if (timers.current.has(ticket.id)) return;
         const elapsed = Date.now() - ticket.placedAt;
         const delay = Math.max(1200, SETTLE_MS - elapsed);
-        const timer = window.setTimeout(() => {
+        const timer = window.setTimeout(async () => {
           timers.current.delete(ticket.id);
-          const won = Math.random() < 0.9 / ticket.odds;
-          const payout = settleTicket(ticket.id, won);
-          if (payout === null) return; // slip was cleared (e.g. wallet reset)
+          const result = await settleTicket(ticket.id);
+          if (!result.ok) return; // still open, or already settled elsewhere
           push(
-            won
-              ? `Slip won — ${money(payout)} paid out`
+            result.won
+              ? `Slip won — ${money(result.payout ?? 0)} paid out`
               : `Slip lost — ${money(ticket.stake)} stake gone`,
-            won ? "win" : "lose",
+            result.won ? "win" : "lose",
           );
         }, delay);
         timers.current.set(ticket.id, timer);
@@ -83,7 +83,7 @@ export default function SportsPage() {
         return prev.filter((leg) => leg.id !== legId);
       }
       // One selection per market per match.
-      const cleaned = prev.filter((leg) => !leg.id.startsWith(`${match.id}:${market.id}:`));
+      const cleaned = prev.filter((leg) => !(leg.id ?? '').startsWith(`${match.id}:${market.id}:`));
       return [
         ...cleaned,
         {
@@ -97,7 +97,7 @@ export default function SportsPage() {
     });
   };
 
-  const placeSlip = () => {
+  const placeSlip = async () => {
     if (selections.length === 0) {
       push("Add at least one pick to your slip", "lose");
       return;
@@ -106,9 +106,11 @@ export default function SportsPage() {
       push("Minimum stake is KES 10", "lose");
       return;
     }
-    const id = addTicket({ stake: stakeValue, odds: totalOdds, legs: selections });
-    if (!id) {
-      push("Not enough balance, or betting is blocked by your limits", "lose");
+    setPlacing(true);
+    const result = await placeTicket(stakeValue, totalOdds, selections);
+    setPlacing(false);
+    if (!result.ok) {
+      push(result.error ?? "Could not place the slip", "lose");
       return;
     }
     push(`Slip placed · ${money(stakeValue)} at ${money2(totalOdds)} odds`, "info");
@@ -287,10 +289,14 @@ export default function SportsPage() {
                   <button
                     type="button"
                     className="place-btn"
-                    disabled={stakeValue < 10 || stakeValue > balance}
+                    disabled={stakeValue < 10 || stakeValue > balance || placing}
                     onClick={placeSlip}
                   >
-                    {stakeValue > balance ? "Insufficient balance" : `Place bet · ${money(stakeValue)}`}
+                    {stakeValue > balance
+                      ? "Insufficient balance"
+                      : placing
+                        ? "Placing…"
+                        : `Place bet · ${money(stakeValue)}`}
                   </button>
                   <p className="bet-note" style={{ margin: 0 }}>
                     {mode === "demo" ? "Demo" : "Account"} balance {money(balance)} · odds and

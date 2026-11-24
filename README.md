@@ -2,7 +2,7 @@
 
 A crash-game and sportsbook product built with Next.js: a lobby, an Aviator-style crash game, a Kenyan sportsbook, registered accounts with a wallet, and responsible-gambling controls.
 
-> **Play-money preview.** No deposits, withdrawals or real wagers are processed. Balances are virtual and accounts live in this browser. Running a real book needs a BLCB licence, KYC/AML and a server database — see [Making it real](#making-it-real).
+> **Play-money preview.** No deposits, withdrawals or real wagers are processed. Balances are virtual. Accounts, wallets and bet history persist in Postgres (Neon). Running a real book also needs a BLCB licence, KYC/AML and payment rails — see [Making it real](#making-it-real).
 
 ![Lobby](docs/lobby.png)
 
@@ -18,7 +18,7 @@ Mobile: ![Mobile](docs/mobile.png)
 | --- | --- | --- |
 | Sign-up | None | Email, phone, date of birth (18+) |
 | Wallet | KES 5,000 virtual credits, resettable | Own balance, ledger, deposits & withdrawal requests |
-| Persistence | Per browser | Per browser (until a database is attached) |
+| Persistence | Server-side (guest session) | Server-side (email + password) |
 | Limits / self-exclusion | Global demo limits | Per-account limits, reality checks, self-exclusion |
 | Withdrawals | — | Requires KYC verification |
 
@@ -46,7 +46,7 @@ Switch wallets with the **Demo / Account** toggle in the header. Both wallets ke
 - Verification: KYC submission with reference and simulated approval (withdrawals stay locked until verified).
 - Security: password change, 2FA toggle, session info, demo tools.
 
-**Auth (`/auth`)** — sign-in and registration with inline validation; passwords are hashed with PBKDF2-SHA256 (150k iterations, per-user salt) via WebCrypto before storage.
+**Auth (`/auth`)** — sign-in and registration with inline validation. Passwords are hashed server-side with scrypt (`scrypt:N:r:p` string, 64-byte derived key, per-user salt) and sessions are HTTP-only cookies backed by a `sessions` table.
 
 **Provably fair (`/fair`)** — recompute any round from a seed: commitment hash, bust point, flight duration, and the exact hash input.
 
@@ -58,6 +58,25 @@ multiplier(t) = e^(0.07 · t)    t in seconds
 ```
 
 Resulting profile: ~1% instant busts at 1.00x, ~34% below 1.5x, ~50% below 2.00x, capped at 5,000x. The 0.99 factor is the 1% house edge.
+
+## Data layer
+
+Everything money-related lives in Postgres (Neon serverless, pooled connection).
+
+```
+users ──< sessions
+  │
+  ├──< wallets (user_id, mode: demo|account) ──< transactions
+  │        ├──< aviator_bets
+  │        └──< tickets ──< ticket_legs
+  ├──< withdrawals
+  └── limits (daily deposit, daily loss, reality check)
+```
+
+- Every balance change runs inside a `begin … commit` transaction with `select … for update` on the wallet row, so concurrent tabs can't double-spend.
+- Guests get a real row + demo wallet on first request; registering upgrades that guest in place, keeping the demo balance and adding an account wallet.
+- Server-side guards: stake bounds, daily loss limit, self-exclusion, KYC-before-withdrawal, daily deposit limit, minimum slip age before settlement.
+- API: `GET /api/bootstrap`, `POST /api/auth`, `/api/wallet`, `/api/aviator`, `/api/sports`, `/api/account` — all return the fresh snapshot so the UI never drifts.
 
 ## Structure
 
@@ -85,14 +104,23 @@ lib/
   game.ts              crash math, formatting, seeded RNG
   useAviator.ts        round state machine
   sports.ts            fixtures and odds
+lib/server/
+  db.ts                pg pool + transaction helper
+  schema.sql           full schema
+  store.ts             snapshot, auth, wallet and bet logic
+  session.ts           cookie sessions
+  passwords.ts         scrypt hashing
+app/api/*/route.ts     JSON endpoints
+scripts/migrate.mjs    applies schema.sql to DATABASE_URL
 ```
 
 ## Run
 
 ```bash
 npm install
-npm run dev      # http://localhost:3000
-npm run build && npm start
+echo 'DATABASE_URL=postgres://…' > .env.local
+npm run db:migrate      # creates the schema
+npm run dev             # http://localhost:3000
 ```
 
 Node 18.18+; built on Node 22 with Next 15 / React 19.
@@ -101,8 +129,8 @@ Node 18.18+; built on Node 22 with Next 15 / React 19.
 
 The app is shaped like a production book but stops short of money movement. To take it live:
 
-1. **Database** — move `lib/bank.tsx` state into Postgres (users, sessions, wallets, ledger, bets). The provider's API is already the seam: swap its internals for API routes.
-2. **Server-side RNG** — generate and store the crash seed server-side, expose the hash before the round, reveal after. Today it runs in the browser, which is fine for a demo but not for money.
+1. ~~Database~~ — done: users, sessions, wallets, ledger, bets and withdrawals all live in Postgres.
+2. **Server-side RNG** — generate and store the crash seed on the server, expose the hash before the round, reveal after. The engine still runs in the browser, so the client decides the bust point — acceptable for a demo, not for money.
 3. **Payments** — integrate an M-Pesa Daraja / card provider behind the deposit and withdrawal endpoints, with idempotency keys and reconciliation.
 4. **Compliance** — BCLB licence, KYC document checks, AML monitoring, tax reporting, complaints and self-exclusion shared across operators.
 5. **Ops** — rate limiting, audit logs, monitoring, incident runbooks, responsible-gambling helpline links.

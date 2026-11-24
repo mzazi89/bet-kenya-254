@@ -39,10 +39,10 @@ export default function SiteFooter() {
         <div className="footer-note">
           <span>
             <strong style={{ color: "var(--muted)" }}>Play-money preview.</strong> No deposits,
-            withdrawals or real-money wagers are processed. Balances are virtual, have no cash
-            value, and accounts on this deployment are stored in this browser only — connect a
-            Postgres database to make them portable. Operating a real betting service in Kenya
-            requires a BCLB licence, KYC/AML controls and responsible-gambling tooling.
+            withdrawals or real-money wagers are processed — every balance is virtual and has no
+            cash value. Accounts, wallets and bet history persist in Postgres. Operating a real
+            betting service in Kenya requires a BCLB licence, KYC/AML controls and
+            responsible-gambling tooling.
           </span>
         </div>
       </div>

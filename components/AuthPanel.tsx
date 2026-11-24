@@ -102,8 +102,8 @@ export default function AuthPanel() {
         </ul>
 
         <div className="alert info" style={{ fontSize: 11.5 }}>
-          Preview build: accounts are stored in this browser only. No real money moves, and no
-          personal data leaves the device.
+          Preview build: no real money moves. Accounts and balances are stored in the platform
+          Postgres database, not in your browser.
         </div>
       </aside>
 
