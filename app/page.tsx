@@ -275,9 +275,9 @@ export default function Home() {
         </svg>
         <span>
           <strong style={{ color: "var(--text)" }}>18+ · Play money.</strong> This build never
-          handles real cash. Accounts, deposits and withdrawals are simulated and stored in your
-          browser; real-money operation needs a BCLB licence, a server database and KYC/AML
-          controls.
+          handles real cash — deposits and withdrawals are simulated. Accounts, wallets and bet
+          history persist in Postgres; real-money operation would also need a BCLB licence, payment
+          rails and KYC/AML controls.
         </span>
       </div>
     </>
